@@ -1,7 +1,10 @@
 package com.perfect.IndiExport.util;
 
 import com.itextpdf.html2pdf.HtmlConverter;
+import com.perfect.IndiExport.entity.Buyer;
 import com.perfect.IndiExport.entity.Invoice;
+import com.perfect.IndiExport.repository.BuyerRepository;
+
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
@@ -9,6 +12,12 @@ import java.time.format.DateTimeFormatter;
 
 @Component
 public class InvoicePdfGenerator {
+
+    private final BuyerRepository buyerRepository;
+
+    public InvoicePdfGenerator(BuyerRepository buyerRepository) {
+        this.buyerRepository = buyerRepository;
+    }
 
     public byte[] generatePdf(Invoice invoice) {
         String html = generateInvoiceHtml(invoice);
@@ -24,6 +33,10 @@ public class InvoicePdfGenerator {
     private String generateInvoiceHtml(Invoice invoice) {
         DateTimeFormatter dateFormatter = DateTimeFormatter.ofPattern("dd MMM yyyy");
         
+        Buyer buyer = buyerRepository.findById(invoice.getBuyer().getId())
+        .orElseThrow(() -> new RuntimeException("Buyer profile not found"));
+
+
         return "<!DOCTYPE html>" +
                 "<html>" +
                 "<head>" +
@@ -71,7 +84,7 @@ public class InvoicePdfGenerator {
                 "<table class='info-table'>" +
                 "<tr><td class='label'>Name:</td><td>" + invoice.getBuyer().getName() + "</td></tr>" +
                 "<tr><td class='label'>Email:</td><td>" + invoice.getBuyer().getEmail() + "</td></tr>" +
-                "<tr><td class='label'>Country:</td><td>" + invoice.getInquiry().getBuyerCountry() + "</td></tr>" +
+                "<tr><td class='label'>Country:</td><td>" + buyer.getCountry() + "</td></tr>" +
                 "</table>" +
                 "</div>" +
                 "</div>" +

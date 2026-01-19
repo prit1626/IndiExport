@@ -45,6 +45,10 @@ public class RFQ {
     @Builder.Default
     private RFQStatus status = RFQStatus.OPEN;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "accepted_response_id")
+    private RFQResponse acceptedResponse; // Which response was accepted
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
@@ -52,8 +56,9 @@ public class RFQ {
     private LocalDateTime updatedAt;
 
     public enum RFQStatus {
-        OPEN,
-        CLOSED
+        OPEN,         // Sellers can submit quotations
+        NEGOTIATION,  // Buyer and sellers are in chat negotiation
+        CLOSED        // RFQ decision finalized
     }
 }
 

@@ -47,6 +47,17 @@ public class ChatController {
         return ResponseEntity.ok(room);
     }
 
+    @GetMapping("/rooms/rfq/{rfqResponseId}")
+    public ResponseEntity<ChatRoomDto> getOrCreateRFQChatRoom(
+            @PathVariable Long rfqResponseId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        User user = userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        ChatRoomDto room = chatService.getOrCreateRFQChatRoom(user, rfqResponseId);
+        return ResponseEntity.ok(room);
+    }
+
     @GetMapping("/rooms/{roomId}/messages")
     public ResponseEntity<List<ChatMessageDto>> getMessages(
             @PathVariable Long roomId,

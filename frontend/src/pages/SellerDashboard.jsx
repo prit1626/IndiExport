@@ -162,13 +162,13 @@ const SellerDashboard = () => {
                 <div>
                     <h3 style={{ color: "#1976d2", marginBottom: "20px" }}>IndiExport Seller</h3>
                     <ul style={{ listStyle: "none", padding: 0 }}>
-                        <li 
+                        <li
                             onClick={() => setActiveTab("profile")}
                             style={{ padding: "10px", backgroundColor: activeTab === "profile" ? "#e3f2fd" : "transparent", borderRadius: "6px", color: activeTab === "profile" ? "#1976d2" : "#666", cursor: "pointer", fontWeight: activeTab === "profile" ? "600" : "400" }}
                         >
                             Profile
                         </li>
-                        <li 
+                        <li
                             onClick={() => setActiveTab("analytics")}
                             style={{ padding: "10px", backgroundColor: activeTab === "analytics" ? "#e3f2fd" : "transparent", borderRadius: "6px", color: activeTab === "analytics" ? "#1976d2" : "#666", cursor: "pointer", fontWeight: activeTab === "analytics" ? "600" : "400", marginTop: "5px" }}
                         >
@@ -188,7 +188,7 @@ const SellerDashboard = () => {
                         </Link>
                     </ul>
                 </div>
-                <button 
+                <button
                     onClick={handleLogout}
                     style={{ padding: "10px 16px", backgroundColor: "#d32f2f", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "600", marginTop: "20px" }}
                 >

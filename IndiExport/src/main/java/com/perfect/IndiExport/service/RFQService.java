@@ -152,6 +152,7 @@ public class RFQService {
         dto.setOfferedPrice(response.getOfferedPrice());
         dto.setEstimatedDeliveryTime(response.getEstimatedDeliveryTime());
         dto.setMessage(response.getMessage());
+        dto.setStatus(response.getStatus());
         dto.setCreatedAt(response.getCreatedAt());
         dto.setUpdatedAt(response.getUpdatedAt());
         return dto;
@@ -277,6 +278,112 @@ public class RFQService {
         }
 
         rfqRepository.delete(rfq);
+    }
+
+    // RFQ Negotiation Methods
+    @Transactional
+    public RFQResponseDto acceptRFQResponse(User buyerUser, Long rfqResponseId) {
+        RFQResponse response = rfqResponseRepository.findById(rfqResponseId)
+                .orElseThrow(() -> new RuntimeException("RFQ response not found"));
+
+        RFQ rfq = response.getRfq();
+
+        // Verify buyer owns the RFQ
+        if (!rfq.getBuyer().getId().equals(buyerUser.getId())) {
+            throw new RuntimeException("Access denied");
+        }
+
+        // Verify RFQ is still open or in negotiation
+        if (rfq.getStatus() == RFQ.RFQStatus.CLOSED) {
+            throw new RuntimeException("RFQ is already closed");
+        }
+
+        // Verify response is in chat (negotiation phase)
+        if (response.getStatus() != RFQResponse.ResponseStatus.IN_CHAT) {
+            throw new RuntimeException("RFQ response must be in chat/negotiation phase before acceptance");
+        }
+
+        // Accept this response
+        response.setStatus(RFQResponse.ResponseStatus.ACCEPTED);
+        rfqResponseRepository.save(response);
+
+        // Decline all other responses
+        List<RFQResponse> otherResponses = rfqResponseRepository.findByRfqIdOrderByCreatedAtDesc(rfq.getId())
+                .stream()
+                .filter(r -> !r.getId().equals(rfqResponseId))
+                .collect(Collectors.toList());
+
+        for (RFQResponse otherResponse : otherResponses) {
+            if (otherResponse.getStatus() != RFQResponse.ResponseStatus.DECLINED) {
+                otherResponse.setStatus(RFQResponse.ResponseStatus.DECLINED);
+                rfqResponseRepository.save(otherResponse);
+            }
+        }
+
+        // Close RFQ
+        rfq.setStatus(RFQ.RFQStatus.CLOSED);
+        rfq.setAcceptedResponse(response);
+        rfqRepository.save(rfq);
+
+        // Close all chat rooms for this RFQ
+        // This will be handled by ChatService
+
+        return mapResponseToDto(response);
+    }
+
+    @Transactional
+    public RFQResponseDto declineRFQResponse(User buyerUser, Long rfqResponseId) {
+        RFQResponse response = rfqResponseRepository.findById(rfqResponseId)
+                .orElseThrow(() -> new RuntimeException("RFQ response not found"));
+
+        RFQ rfq = response.getRfq();
+
+        // Verify buyer owns the RFQ
+        if (!rfq.getBuyer().getId().equals(buyerUser.getId())) {
+            throw new RuntimeException("Access denied");
+        }
+
+        // Verify RFQ is not closed
+        if (rfq.getStatus() == RFQ.RFQStatus.CLOSED) {
+            throw new RuntimeException("RFQ is already closed");
+        }
+
+        // Decline this response
+        response.setStatus(RFQResponse.ResponseStatus.DECLINED);
+        rfqResponseRepository.save(response);
+
+        // Close chat for this response
+        // This will be handled by ChatService
+
+        return mapResponseToDto(response);
+    }
+
+    @Transactional
+    public void startRFQNegotiation(User buyerUser, Long rfqResponseId) {
+        RFQResponse response = rfqResponseRepository.findById(rfqResponseId)
+                .orElseThrow(() -> new RuntimeException("RFQ response not found"));
+
+        RFQ rfq = response.getRfq();
+
+        // Verify buyer owns the RFQ
+        if (!rfq.getBuyer().getId().equals(buyerUser.getId())) {
+            throw new RuntimeException("Access denied");
+        }
+
+        // Verify response is submitted
+        if (response.getStatus() != RFQResponse.ResponseStatus.SUBMITTED) {
+            throw new RuntimeException("RFQ response must be in SUBMITTED status");
+        }
+
+        // Update RFQ to NEGOTIATION if still OPEN
+        if (rfq.getStatus() == RFQ.RFQStatus.OPEN) {
+            rfq.setStatus(RFQ.RFQStatus.NEGOTIATION);
+            rfqRepository.save(rfq);
+        }
+
+        // Update response status to IN_CHAT
+        response.setStatus(RFQResponse.ResponseStatus.IN_CHAT);
+        rfqResponseRepository.save(response);
     }
 
     private String extractCountryFromEmail(String email) {

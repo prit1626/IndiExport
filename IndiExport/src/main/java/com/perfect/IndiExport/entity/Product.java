@@ -56,6 +56,10 @@ public class Product {
     @Builder.Default
     private Integer reservedStock = 0; // Quantity locked by inquiries/invoices
 
+    @Column(name = "allow_direct_buy", nullable = false)
+    @Builder.Default
+    private Boolean allowDirectBuy = false; // Allow direct purchase without inquiry
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
@@ -73,8 +77,10 @@ public class Product {
 
     public String getStockStatus() {
         int remaining = getRemainingStock();
-        if (remaining == 0) return "OUT_OF_STOCK";
-        if (remaining <= 10) return "LOW_STOCK";
+        if (remaining == 0)
+            return "OUT_OF_STOCK";
+        if (remaining <= 10)
+            return "LOW_STOCK";
         return "IN_STOCK";
     }
 }

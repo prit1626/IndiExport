@@ -11,11 +11,15 @@ import java.util.Optional;
 public interface ChatRoomRepository extends JpaRepository<ChatRoom, Long> {
     Optional<ChatRoom> findByInquiryId(Long inquiryId);
     
+    Optional<ChatRoom> findByRfqResponseId(Long rfqResponseId);
+    
     List<ChatRoom> findBySellerIdOrderByUpdatedAtDesc(Long sellerId);
     
     List<ChatRoom> findByBuyerIdOrderByUpdatedAtDesc(Long buyerId);
     
     Optional<ChatRoom> findByInquiryIdAndSellerId(Long inquiryId, Long sellerId);
+    
+    Optional<ChatRoom> findByRfqResponseIdAndSellerId(Long rfqResponseId, Long sellerId);
     
     long countBySellerId(Long sellerId);
 }

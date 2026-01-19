@@ -30,4 +30,7 @@ public class ProductDto {
     // Seller info (for buyer view)
     private Long sellerId;
     private String sellerBusinessName;
+    
+    // Buy Now feature
+    private Boolean allowDirectBuy;
 }

@@ -6,12 +6,18 @@ import com.perfect.IndiExport.dto.RegisterRequest;
 import com.perfect.IndiExport.entity.Role;
 import com.perfect.IndiExport.entity.User;
 import com.perfect.IndiExport.repository.UserRepository;
+import com.perfect.IndiExport.entity.TokenBlacklist;
+import com.perfect.IndiExport.repository.TokenBlacklistRepository;
 import com.perfect.IndiExport.util.JwtUtil;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.*;
 import org.springframework.security.authentication.*;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -30,6 +36,8 @@ public class AuthController {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
+    @Autowired
+    private TokenBlacklistRepository tokenBlacklistRepository;
 
     // ---------------- LOGIN ----------------
     @PostMapping("/login")
@@ -38,8 +46,7 @@ public class AuthController {
         try {
             authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
-                            request.getEmail(), request.getPassword())
-            );
+                            request.getEmail(), request.getPassword()));
 
             User user = userRepository.findByEmail(request.getEmail()).get();
 
@@ -47,8 +54,7 @@ public class AuthController {
                     user.getEmail(), user.getRole().name());
 
             return ResponseEntity.ok(
-                    new LoginResponse(token, user.getRole().name())
-            );
+                    new LoginResponse(token, user.getRole().name()));
 
         } catch (BadCredentialsException e) {
             return ResponseEntity
@@ -80,8 +86,7 @@ public class AuthController {
         user.setName(request.getName());
         user.setEmail(request.getEmail());
         user.setPassword(
-                passwordEncoder.encode(request.getPassword())
-        );
+                passwordEncoder.encode(request.getPassword()));
         user.setRole(request.getRole());
         user.setStatus("ACTIVE");
 
@@ -92,12 +97,107 @@ public class AuthController {
                 .body("User registered successfully");
     }
 
-    // ---------------- LOGOUT ---------------- 
     @PostMapping("/logout")
-    public ResponseEntity<?> logout() {
-        // JWT tokens are stateless, so we just return success
-        // Client will remove the token from storage
+    public ResponseEntity<?> logout(HttpServletRequest request) {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) {
+            String token = header.substring(7);
+            try {
+                var expirationDate = jwtUtil.extractExpiration(token);
+                var expiresAt = LocalDateTime.ofInstant(expirationDate.toInstant(), ZoneId.systemDefault());
+
+                TokenBlacklist blacklistEntry = TokenBlacklist.builder()
+                        .token(token)
+                        .blacklistedAt(LocalDateTime.now())
+                        .expiresAt(expiresAt)
+                        .build();
+
+                tokenBlacklistRepository.save(blacklistEntry);
+            } catch (Exception e) {
+                // Ignore if token is already invalid
+            }
+        }
         return ResponseEntity.ok("Logged out successfully");
     }
-}
 
+    public boolean validateToken(String token) {
+        try {
+            jwtUtil.extractAllClaims(token);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    public String extractUsername(String token) {
+        return jwtUtil.extractAllClaims(token).getSubject();
+    }
+
+    public String extractRole(String token) {
+        return jwtUtil.extractAllClaims(token).get("role", String.class);
+    }
+
+    @GetMapping("/token")
+    public ResponseEntity<?> getCurrentToken(HttpServletRequest request) {
+
+        String header = request.getHeader("Authorization");
+
+        if (header == null || !header.startsWith("Bearer ")) {
+            return ResponseEntity
+                    .status(HttpStatus.BAD_REQUEST)
+                    .body("No token found in request");
+        }
+
+        String token = header.substring(7);
+
+        return ResponseEntity.ok(token);
+    }
+
+    @GetMapping("/validate")
+    public ResponseEntity<?> validateToken(HttpServletRequest request) {
+
+        String header = request.getHeader("Authorization");
+
+        if (header == null || !header.startsWith("Bearer ")) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body("Missing or invalid Authorization header");
+        }
+
+        String token = header.substring(7);
+
+        // 1️⃣ Check blacklist
+        if (tokenBlacklistRepository.existsByToken(token)) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body("Token is blacklisted (logged out)");
+        }
+
+        try {
+            // 2️⃣ Validate signature + expiration
+            boolean isValid = jwtUtil.validateToken(token);
+
+            if (!isValid) {
+                return ResponseEntity
+                        .status(HttpStatus.UNAUTHORIZED)
+                        .body("Invalid or expired token");
+            }
+
+            // 3️⃣ Extract data
+            String email = jwtUtil.extractUsername(token);
+            String role = jwtUtil.extractRole(token);
+
+            return ResponseEntity.ok(
+                    Map.of(
+                            "valid", true,
+                            "email", email,
+                            "role", role));
+
+        } catch (Exception e) {
+            return ResponseEntity
+                    .status(HttpStatus.UNAUTHORIZED)
+                    .body("Token validation failed");
+        }
+    }
+
+}

@@ -9,32 +9,28 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "invoices")
+@Table(name = "orders")
 @Getter
 @Setter
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class Invoice {
+public class Order {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
     @Column(nullable = false, unique = true)
-    private String invoiceNumber; // Auto-generated: INV-YYYYMMDD-XXXX
-
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "order_id", nullable = false, unique = true)
-    private Order order; // Invoice is always linked to an Order
-
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "seller_id", nullable = false)
-    private Seller seller;
+    private String orderNumber; // Auto-generated: ORD-YYYYMMDD-XXXX
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "buyer_id", nullable = false)
     private User buyer;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "seller_id", nullable = false)
+    private Seller seller;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "product_id", nullable = false)
@@ -64,7 +60,26 @@ public class Invoice {
     @Column(nullable = false)
     @Enumerated(EnumType.STRING)
     @Builder.Default
-    private InvoiceStatus status = InvoiceStatus.DRAFT;
+    private OrderSource source = OrderSource.INQUIRY;
+
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "inquiry_id")
+    private Inquiry inquiry; // Null if source is BUY_NOW
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "rfq_response_id")
+    private RFQResponse rfqResponse; // Null if not from RFQ
+
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private OrderStatus status = OrderStatus.CREATED;
+
+    private String deliveryAddress;
+    private String deliveryCity;
+    private String deliveryState;
+    private String deliveryCountry;
+    private String deliveryPincode;
 
     @CreationTimestamp
     private LocalDateTime createdAt;
@@ -72,12 +87,19 @@ public class Invoice {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    public enum InvoiceStatus {
-        DRAFT,
-        CONFIRMED,
-        CANCELLED
+    public enum OrderSource {
+        INQUIRY,    // Order created from inquiry flow
+        BUY_NOW,    // Order created from direct buy flow
+        RFQ         // Order created from RFQ acceptance
+    }
+
+    public enum OrderStatus {
+        CREATED,    // Order created, pending confirmation
+        CONFIRMED,  // Order confirmed by seller
+        SHIPPED,    // Order shipped
+        DELIVERED,  // Order delivered
+        CANCELLED,  // Order cancelled
+        CLOSED      // Order closed/completed
     }
 }
-
-
 

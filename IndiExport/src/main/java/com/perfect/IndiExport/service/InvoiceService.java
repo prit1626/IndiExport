@@ -21,6 +21,7 @@ import java.util.stream.Collectors;
 public class InvoiceService {
 
     private final InvoiceRepository invoiceRepository;
+    private final OrderRepository orderRepository;
     private final InquiryRepository inquiryRepository;
     private final SellerRepository sellerRepository;
     private final ProductRepository productRepository;
@@ -32,59 +33,87 @@ public class InvoiceService {
         Seller seller = sellerRepository.findById(user.getId())
                 .orElseThrow(() -> new RuntimeException("Seller profile not found"));
 
-        Inquiry inquiry = inquiryRepository.findById(request.getInquiryId())
-                .orElseThrow(() -> new RuntimeException("Inquiry not found"));
+        Order order = orderRepository.findById(request.getOrderId())
+                .orElseThrow(() -> new RuntimeException("Order not found"));
 
-        // Verify inquiry belongs to seller
-        if (!inquiry.getSeller().getId().equals(seller.getId())) {
+        // Verify order belongs to seller
+        if (!order.getSeller().getId().equals(seller.getId())) {
             throw new RuntimeException("Access denied");
         }
 
         // Check if invoice already exists
-        if (invoiceRepository.findByInquiryId(inquiry.getId()).isPresent()) {
-            throw new RuntimeException("Invoice already exists for this inquiry");
-        }
-
-        // Validate stock availability
-        Product product = inquiry.getProduct();
-        int remainingStock = product.getRemainingStock();
-        if (remainingStock < inquiry.getRequestedQuantity()) {
-            throw new RuntimeException("Insufficient stock. Available: " + remainingStock + ", Required: " + inquiry.getRequestedQuantity());
+        if (invoiceRepository.findByOrderId(order.getId()).isPresent()) {
+            throw new RuntimeException("Invoice already exists for this order");
         }
 
         // Generate invoice number
         String invoiceNumber = generateInvoiceNumber();
 
-        // Calculate prices
-        BigDecimal unitPrice = product.getPrice();
-        BigDecimal totalPrice = unitPrice.multiply(BigDecimal.valueOf(inquiry.getRequestedQuantity()));
-        BigDecimal shippingCost = request.getShippingCost() != null ? request.getShippingCost() : BigDecimal.ZERO;
-        BigDecimal totalAmount = totalPrice.add(shippingCost);
+        // Use order prices or override with request
+        BigDecimal shippingCost = request.getShippingCost() != null ? request.getShippingCost() : order.getShippingCost();
+        String shippingMethod = request.getShippingMethod() != null ? request.getShippingMethod() : order.getShippingMethod();
+        BigDecimal totalAmount = order.getTotalPrice().add(shippingCost);
 
-        // Currency conversion (simplified - in production, use real API)
-        BigDecimal convertedAmount = null;
-        String convertedCurrency = request.getConvertedCurrency();
-        if (convertedCurrency != null && !convertedCurrency.equals("INR")) {
+        // Currency conversion
+        BigDecimal convertedAmount = order.getConvertedAmount();
+        String convertedCurrency = request.getConvertedCurrency() != null ? request.getConvertedCurrency() : order.getConvertedCurrency();
+        if (convertedCurrency != null && !convertedCurrency.equals("INR") && convertedAmount == null) {
             convertedAmount = convertCurrency(totalAmount, "INR", convertedCurrency);
         }
 
         // Create invoice
         Invoice invoice = Invoice.builder()
                 .invoiceNumber(invoiceNumber)
-                .inquiry(inquiry)
+                .order(order)
                 .seller(seller)
-                .buyer(inquiry.getBuyer())
-                .product(product)
-                .quantity(inquiry.getRequestedQuantity())
-                .unitPrice(unitPrice)
-                .totalPrice(totalPrice)
-                .shippingMethod(request.getShippingMethod() != null ? request.getShippingMethod() : inquiry.getShippingOption())
+                .buyer(order.getBuyer())
+                .product(order.getProduct())
+                .quantity(order.getQuantity())
+                .unitPrice(order.getUnitPrice())
+                .totalPrice(order.getTotalPrice())
+                .shippingMethod(shippingMethod)
                 .shippingCost(shippingCost)
                 .totalAmount(totalAmount)
-                .currency("INR")
+                .currency(order.getCurrency())
                 .convertedAmount(convertedAmount)
                 .convertedCurrency(convertedCurrency)
                 .status(Invoice.InvoiceStatus.DRAFT)
+                .build();
+
+        Invoice saved = invoiceRepository.save(invoice);
+        return mapToDto(saved);
+    }
+
+    @Transactional
+    public InvoiceDto autoGenerateInvoiceForOrder(Order order) {
+        // Auto-generate invoice for Buy Now orders
+        if (order.getSource() != Order.OrderSource.BUY_NOW) {
+            throw new RuntimeException("Auto-invoice generation only for Buy Now orders");
+        }
+
+        // Check if invoice already exists
+        if (invoiceRepository.findByOrderId(order.getId()).isPresent()) {
+            return mapToDto(invoiceRepository.findByOrderId(order.getId()).get());
+        }
+
+        String invoiceNumber = generateInvoiceNumber();
+
+        Invoice invoice = Invoice.builder()
+                .invoiceNumber(invoiceNumber)
+                .order(order)
+                .seller(order.getSeller())
+                .buyer(order.getBuyer())
+                .product(order.getProduct())
+                .quantity(order.getQuantity())
+                .unitPrice(order.getUnitPrice())
+                .totalPrice(order.getTotalPrice())
+                .shippingMethod(order.getShippingMethod())
+                .shippingCost(order.getShippingCost())
+                .totalAmount(order.getTotalAmount())
+                .currency(order.getCurrency())
+                .convertedAmount(order.getConvertedAmount())
+                .convertedCurrency(order.getConvertedCurrency())
+                .status(Invoice.InvoiceStatus.CONFIRMED) // Auto-confirmed for Buy Now
                 .build();
 
         Invoice saved = invoiceRepository.save(invoice);
@@ -108,8 +137,8 @@ public class InvoiceService {
             throw new RuntimeException("Only DRAFT invoices can be confirmed");
         }
 
-        // Deduct stock permanently
-        productService.deductStock(invoice.getProduct().getId(), invoice.getQuantity());
+        // Stock is already deducted when order was created, so no need to deduct again
+        // Just confirm the invoice
 
         // Update invoice status
         invoice.setStatus(Invoice.InvoiceStatus.CONFIRMED);
@@ -184,6 +213,12 @@ public class InvoiceService {
             throw new RuntimeException("Access denied");
         }
 
+        // Verify seller is ADVANCED for file sharing (PDF Download)
+        if (!"ADVANCED".equals(seller.getSellerMode())) {
+            throw new RuntimeException(
+                    "PDF download is only available for ADVANCED sellers. Please upgrade your profile.");
+        }
+
         return pdfGenerator.generatePdf(invoice);
     }
 
@@ -194,7 +229,8 @@ public class InvoiceService {
     }
 
     private BigDecimal convertCurrency(BigDecimal amount, String from, String to) {
-        // Simplified currency conversion - in production, use real API like ExchangeRate-API
+        // Simplified currency conversion - in production, use real API like
+        // ExchangeRate-API
         // For now, return a mock conversion
         if ("USD".equals(to)) {
             return amount.divide(BigDecimal.valueOf(83), 2, RoundingMode.HALF_UP); // Approximate 1 USD = 83 INR
@@ -208,18 +244,27 @@ public class InvoiceService {
         InvoiceDto dto = new InvoiceDto();
         dto.setId(invoice.getId());
         dto.setInvoiceNumber(invoice.getInvoiceNumber());
-        dto.setInquiryId(invoice.getInquiry().getId());
+        dto.setOrderId(invoice.getOrder().getId());
+        dto.setOrderNumber(invoice.getOrder().getOrderNumber());
+        if (invoice.getOrder().getInquiry() != null) {
+            dto.setInquiryId(invoice.getOrder().getInquiry().getId());
+        }
         dto.setSellerId(invoice.getSeller().getId());
         dto.setSellerBusinessName(invoice.getSeller().getBusinessName());
         dto.setSellerGstNumber(invoice.getSeller().getGstNumber());
-        dto.setSellerAddress(invoice.getSeller().getAddress() + ", " + invoice.getSeller().getCity() + ", " + invoice.getSeller().getState());
+        dto.setSellerAddress(invoice.getSeller().getAddress() + ", " + invoice.getSeller().getCity() + ", "
+                + invoice.getSeller().getState());
         dto.setBuyerId(invoice.getBuyer().getId());
         dto.setBuyerName(invoice.getBuyer().getName());
         dto.setBuyerEmail(invoice.getBuyer().getEmail());
-        dto.setBuyerCountry(invoice.getInquiry().getBuyerCountry());
-        dto.setProductId(invoice.getProduct().getId());
-        dto.setProductName(invoice.getProduct().getName());
-        dto.setProductCategory(invoice.getProduct().getCategory());
+        if (invoice.getOrder().getDeliveryCountry() != null) {
+            dto.setBuyerCountry(invoice.getOrder().getDeliveryCountry());
+        }
+        if (invoice.getProduct() != null) {
+            dto.setProductId(invoice.getProduct().getId());
+            dto.setProductName(invoice.getProduct().getName());
+            dto.setProductCategory(invoice.getProduct().getCategory());
+        }
         dto.setQuantity(invoice.getQuantity());
         dto.setUnitPrice(invoice.getUnitPrice());
         dto.setTotalPrice(invoice.getTotalPrice());
@@ -235,6 +280,3 @@ public class InvoiceService {
         return dto;
     }
 }
-
-
-

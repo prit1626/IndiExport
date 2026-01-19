@@ -31,14 +31,14 @@ public class RFQController {
 
         List<RFQDto> rfqs;
         boolean isSeller = user.getRole().name().contains("SELLER");
-        
+
         if (isSeller) {
             rfqs = rfqService.getAvailableRFQs(user);
         } else {
             // Buyer - get their own RFQs
             rfqs = rfqService.getBuyerRFQs(user);
         }
-        
+
         return ResponseEntity.ok(rfqs);
     }
 
@@ -51,13 +51,13 @@ public class RFQController {
 
         RFQDto rfq;
         boolean isSeller = user.getRole().name().contains("SELLER");
-        
+
         if (isSeller) {
             rfq = rfqService.getRFQDetails(user, id);
         } else {
             rfq = rfqService.getBuyerRFQDetails(user, id);
         }
-        
+
         return ResponseEntity.ok(rfq);
     }
 
@@ -79,17 +79,15 @@ public class RFQController {
             @AuthenticationPrincipal UserDetails userDetails) {
         User user = userRepository.findByEmail(userDetails.getUsername())
                 .orElseThrow(() -> new RuntimeException("User not found"));
-        
-        // Verify access - buyer can only see responses to their own RFQs
+
         boolean isSeller = user.getRole().name().contains("SELLER");
-        if (!isSeller) {
-            // For buyers, verify they own the RFQ
-            RFQDto rfq = rfqService.getBuyerRFQDetails(user, id);
-            if (rfq == null) {
-                throw new RuntimeException("Access denied");
-            }
+        if (isSeller) {
+            throw new RuntimeException("Access denied. Sellers cannot view all responses to an RFQ.");
         }
-        
+
+        // For buyers, verify they own the RFQ
+        rfqService.getBuyerRFQDetails(user, id); // Throws exception if not owner
+
         List<RFQResponseDto> responses = rfqService.getRFQResponses(id);
         return ResponseEntity.ok(responses);
     }
@@ -137,7 +135,53 @@ public class RFQController {
         rfqService.deleteRFQ(user, id);
         return ResponseEntity.ok("RFQ deleted successfully");
     }
+
+    // RFQ Negotiation endpoints
+    @PostMapping("/responses/{rfqResponseId}/start-chat")
+    public ResponseEntity<?> startRFQNegotiation(
+            @PathVariable Long rfqResponseId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        User user = userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Verify user is buyer
+        if (!user.getRole().name().equals("BUYER")) {
+            throw new RuntimeException("Only buyers can start RFQ negotiation");
+        }
+
+        rfqService.startRFQNegotiation(user, rfqResponseId);
+        return ResponseEntity.ok("RFQ negotiation started");
+    }
+
+    @PostMapping("/responses/{rfqResponseId}/accept")
+    public ResponseEntity<RFQResponseDto> acceptRFQResponse(
+            @PathVariable Long rfqResponseId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        User user = userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Verify user is buyer
+        if (!user.getRole().name().equals("BUYER")) {
+            throw new RuntimeException("Only buyers can accept RFQ responses");
+        }
+
+        RFQResponseDto response = rfqService.acceptRFQResponse(user, rfqResponseId);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/responses/{rfqResponseId}/decline")
+    public ResponseEntity<RFQResponseDto> declineRFQResponse(
+            @PathVariable Long rfqResponseId,
+            @AuthenticationPrincipal UserDetails userDetails) {
+        User user = userRepository.findByEmail(userDetails.getUsername())
+                .orElseThrow(() -> new RuntimeException("User not found"));
+
+        // Verify user is buyer
+        if (!user.getRole().name().equals("BUYER")) {
+            throw new RuntimeException("Only buyers can decline RFQ responses");
+        }
+
+        RFQResponseDto response = rfqService.declineRFQResponse(user, rfqResponseId);
+        return ResponseEntity.ok(response);
+    }
 }
-
-
-

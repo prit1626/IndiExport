@@ -20,6 +20,7 @@ public class ChatService {
     private final ChatRoomRepository chatRoomRepository;
     private final ChatMessageRepository chatMessageRepository;
     private final InquiryRepository inquiryRepository;
+    private final RFQResponseRepository rfqResponseRepository;
     private final SellerRepository sellerRepository;
     private final UserRepository userRepository;
     private final SimpMessagingTemplate messagingTemplate;
@@ -73,11 +74,20 @@ public class ChatService {
                 .orElseThrow(() -> new RuntimeException("Chat room not found"));
 
         // Verify access
-        Seller seller = sellerRepository.findById(user.getId())
-                .orElseThrow(() -> new RuntimeException("Seller profile not found"));
+        boolean isOwner = false;
+        if (user.getRole().name().contains("SELLER")) {
+            Seller seller = sellerRepository.findById(user.getId()).orElse(null);
+            if (seller != null && room.getSeller().getId().equals(seller.getId())) {
+                isOwner = true;
+            }
+        } else {
+            if (room.getBuyer().getId().equals(user.getId())) {
+                isOwner = true;
+            }
+        }
 
-        if (!room.getSeller().getId().equals(seller.getId()) && !room.getBuyer().getId().equals(user.getId())) {
-            throw new RuntimeException("Access denied");
+        if (!isOwner) {
+            throw new RuntimeException("Access denied. You are not a participant in this chat room.");
         }
 
         List<ChatMessage> messages = chatMessageRepository.findByChatRoomIdOrderByCreatedAtAsc(chatRoomId);
@@ -109,7 +119,8 @@ public class ChatService {
             Seller seller = sellerRepository.findById(user.getId())
                     .orElseThrow(() -> new RuntimeException("Seller profile not found"));
             if ("BASIC".equals(seller.getSellerMode())) {
-                throw new RuntimeException("File sharing is only available for ADVANCED sellers. Please upgrade to use this feature.");
+                throw new RuntimeException(
+                        "File sharing is only available for ADVANCED sellers. Please upgrade to use this feature.");
             }
         }
 
@@ -124,7 +135,7 @@ public class ChatService {
                 .build();
 
         ChatMessage saved = chatMessageRepository.save(message);
-        
+
         // Update room's updatedAt
         room.setUpdatedAt(java.time.LocalDateTime.now());
         chatRoomRepository.save(room);
@@ -143,8 +154,8 @@ public class ChatService {
                 .orElseThrow(() -> new RuntimeException("Chat room not found"));
 
         // Determine message type to mark as read (opposite of current user)
-        ChatMessage.MessageType targetType = room.getBuyer().getId().equals(user.getId()) 
-                ? ChatMessage.MessageType.SELLER 
+        ChatMessage.MessageType targetType = room.getBuyer().getId().equals(user.getId())
+                ? ChatMessage.MessageType.SELLER
                 : ChatMessage.MessageType.BUYER;
 
         List<ChatMessage> unreadMessages = chatMessageRepository.findByChatRoomIdOrderByCreatedAtAsc(chatRoomId)
@@ -159,22 +170,33 @@ public class ChatService {
     private ChatRoomDto mapToDto(ChatRoom room, User currentUser) {
         ChatRoomDto dto = new ChatRoomDto();
         dto.setId(room.getId());
-        dto.setInquiryId(room.getInquiry().getId());
         dto.setBuyerId(room.getBuyer().getId());
         dto.setBuyerName(room.getBuyer().getName());
         dto.setSellerId(room.getSeller().getId());
         dto.setSellerBusinessName(room.getSeller().getBusinessName());
-        dto.setProductId(room.getInquiry().getProduct().getId());
-        dto.setProductName(room.getInquiry().getProduct().getName());
         dto.setIsActive(room.getIsActive());
         dto.setCreatedAt(room.getCreatedAt());
         dto.setUpdatedAt(room.getUpdatedAt());
 
+        // Handle Inquiry-based chat
+        if (room.getInquiry() != null) {
+            dto.setInquiryId(room.getInquiry().getId());
+            dto.setProductId(room.getInquiry().getProduct().getId());
+            dto.setProductName(room.getInquiry().getProduct().getName());
+        }
+
+        // Handle RFQ-based chat
+        if (room.getRfqResponse() != null) {
+            dto.setRfqResponseId(room.getRfqResponse().getId());
+            dto.setRfqId(room.getRfqResponse().getRfq().getId());
+            dto.setProductName("RFQ: " + room.getRfqResponse().getRfq().getProductRequirement());
+        }
+
         // Get unread count - count messages from the other party
         boolean isBuyer = room.getBuyer().getId().equals(currentUser.getId());
-        ChatMessage.MessageType targetType = isBuyer 
-            ? ChatMessage.MessageType.SELLER 
-            : ChatMessage.MessageType.BUYER;
+        ChatMessage.MessageType targetType = isBuyer
+                ? ChatMessage.MessageType.SELLER
+                : ChatMessage.MessageType.BUYER;
         long unreadCount = chatMessageRepository.countByChatRoomIdAndIsReadFalseAndSenderType(
                 room.getId(), targetType);
         dto.setUnreadCount(unreadCount);
@@ -202,7 +224,41 @@ public class ChatService {
         dto.setCreatedAt(message.getCreatedAt());
         return dto;
     }
+
+    public ChatRoomDto getOrCreateRFQChatRoom(User user, Long rfqResponseId) {
+
+        RFQResponse rfqResponse = rfqResponseRepository.findById(rfqResponseId)
+                .orElseThrow(() -> new RuntimeException("RFQ Response not found"));
+
+        // Access control
+        boolean isSeller = user.getRole().name().contains("SELLER");
+
+        if (isSeller) {
+            Seller seller = sellerRepository.findById(user.getId())
+                    .orElseThrow(() -> new RuntimeException("Seller profile not found"));
+
+            if (!rfqResponse.getSeller().getId().equals(seller.getId())) {
+                throw new RuntimeException("Access denied");
+            }
+        } else {
+            if (!rfqResponse.getRfq().getBuyer().getId().equals(user.getId())) {
+                throw new RuntimeException("Access denied");
+            }
+        }
+
+        // Get or create chat room
+        ChatRoom room = chatRoomRepository.findByRfqResponseId(rfqResponseId)
+                .orElseGet(() -> {
+                    ChatRoom newRoom = ChatRoom.builder()
+                            .rfqResponse(rfqResponse)
+                            .buyer(rfqResponse.getRfq().getBuyer())
+                            .seller(rfqResponse.getSeller())
+                            .isActive(true)
+                            .build();
+                    return chatRoomRepository.save(newRoom);
+                });
+
+        return mapToDto(room, user);
+    }
+
 }
-
-
-

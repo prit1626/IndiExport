@@ -7,6 +7,7 @@ import com.perfect.IndiExport.repository.UserRepository;
 import com.perfect.IndiExport.service.BuyerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequestMapping("/api/buyer")
 @RequiredArgsConstructor
+@PreAuthorize("hasRole('BUYER')")
 @CrossOrigin
 public class BuyerController {
 

@@ -63,6 +63,7 @@ public class ProductService {
                 .status(dto.getStatus() != null ? dto.getStatus() : "ACTIVE")
                 .declaredStock(dto.getDeclaredStock() != null ? dto.getDeclaredStock() : 0)
                 .reservedStock(0) // Always start with 0 reserved
+                .allowDirectBuy(dto.getAllowDirectBuy() != null ? dto.getAllowDirectBuy() : false)
                 .build();
 
         Product saved = productRepository.save(product);
@@ -74,7 +75,7 @@ public class ProductService {
                     .filter(code -> code != null && !code.trim().isEmpty())
                     .map(code -> code.toUpperCase().trim())
                     .collect(Collectors.toSet());
-            
+
             List<ProductSellingCountry> countries = new ArrayList<>();
             for (String countryCode : uniqueCountryCodes) {
                 ProductSellingCountry psc = ProductSellingCountry.builder()
@@ -84,7 +85,7 @@ public class ProductService {
                         .build();
                 countries.add(psc);
             }
-            
+
             if (!countries.isEmpty()) {
                 sellingCountryRepository.saveAll(countries);
                 saved.setSellingCountries(countries);
@@ -128,6 +129,8 @@ public class ProductService {
             product.setStatus(dto.getStatus());
         if (dto.getDeclaredStock() != null)
             product.setDeclaredStock(dto.getDeclaredStock());
+        if (dto.getAllowDirectBuy() != null)
+            product.setAllowDirectBuy(dto.getAllowDirectBuy());
 
         // Update selling countries
         if (dto.getSellingCountries() != null) {
@@ -136,28 +139,28 @@ public class ProductService {
                     .filter(code -> code != null && !code.trim().isEmpty())
                     .map(code -> code.toUpperCase().trim())
                     .collect(Collectors.toSet());
-            
+
             // Get existing countries for this product
             List<ProductSellingCountry> existingCountries = sellingCountryRepository.findByProductId(productId);
             Set<String> existingCountryCodes = existingCountries.stream()
                     .map(ProductSellingCountry::getCountryCode)
                     .collect(Collectors.toSet());
-            
+
             // Find countries to delete (exist in DB but not in new list)
             List<ProductSellingCountry> toDelete = existingCountries.stream()
                     .filter(country -> !uniqueCountryCodes.contains(country.getCountryCode()))
                     .collect(Collectors.toList());
-            
+
             // Find countries to add (in new list but not in DB)
             Set<String> toAdd = uniqueCountryCodes.stream()
                     .filter(code -> !existingCountryCodes.contains(code))
                     .collect(Collectors.toSet());
-            
+
             // Delete countries that are no longer needed
             if (!toDelete.isEmpty()) {
                 sellingCountryRepository.deleteAll(toDelete);
             }
-            
+
             // Add new countries
             if (!toAdd.isEmpty()) {
                 List<ProductSellingCountry> newCountries = new ArrayList<>();
@@ -171,10 +174,10 @@ public class ProductService {
                 }
                 sellingCountryRepository.saveAll(newCountries);
             }
-            
+
             // Flush to ensure all changes are persisted
             entityManager.flush();
-            
+
             // Refresh product to get updated countries list
             product = productRepository.findById(productId)
                     .orElseThrow(() -> new RuntimeException("Product not found"));
@@ -234,8 +237,45 @@ public class ProductService {
     }
 
     // Buyer methods - Get products available for buyer's country
-    public List<ProductDto> getProductsForBuyer(User buyerUser, String category, String searchTerm) {
-        // Get buyer profile to determine country
+    // Buyer methods - Get products available for buyer's country
+    public List<ProductDto> getProductsForBuyer(
+            User buyerUser,
+            String category,
+            String searchTerm) {
+
+        // ================= GUEST USER =================
+        if (buyerUser == null) {
+
+            List<Product> products = productRepository.findAll().stream()
+                    .filter(p -> "ACTIVE".equals(p.getStatus()))
+                    .collect(Collectors.toList());
+
+            // Apply category filter
+            if (category != null && !category.isEmpty()) {
+                products = products.stream()
+                        .filter(p -> category.equalsIgnoreCase(p.getCategory()))
+                        .collect(Collectors.toList());
+            }
+
+            // Apply search filter
+            if (searchTerm != null && !searchTerm.isEmpty()) {
+                String lowerSearch = searchTerm.toLowerCase();
+                products = products.stream()
+                        .filter(p -> p.getName().toLowerCase().contains(lowerSearch) ||
+                                (p.getDescription() != null &&
+                                        p.getDescription().toLowerCase().contains(lowerSearch)))
+                        .collect(Collectors.toList());
+            }
+
+            // Guest → normal DTO mapping (NO buyer logic)
+            return products.stream()
+                    .map(this::mapToDto) // 👈 your normal mapper
+                    .collect(Collectors.toList());
+        }
+
+        // ================= LOGGED-IN BUYER =================
+
+        // Get buyer profile
         Buyer buyer = buyerRepository.findByUserId(buyerUser.getId())
                 .orElseThrow(() -> new RuntimeException("Buyer profile not found. Please complete your profile."));
 
@@ -244,16 +284,16 @@ public class ProductService {
             throw new RuntimeException("Buyer country not set. Please update your profile.");
         }
 
-        // Get all active products
+        // Get active products
         List<Product> allProducts = productRepository.findAll().stream()
                 .filter(p -> "ACTIVE".equals(p.getStatus()))
                 .collect(Collectors.toList());
 
-        // Filter by buyer's country
+        // Filter by buyer country
         List<Product> filteredProducts = allProducts.stream()
                 .filter(product -> {
-                    // Check if product is available in buyer's country
                     List<ProductSellingCountry> countries = sellingCountryRepository.findByProductId(product.getId());
+
                     return countries.stream()
                             .anyMatch(psc -> psc.getCountryCode().equalsIgnoreCase(buyerCountry));
                 })
@@ -271,11 +311,12 @@ public class ProductService {
             String lowerSearch = searchTerm.toLowerCase();
             filteredProducts = filteredProducts.stream()
                     .filter(p -> p.getName().toLowerCase().contains(lowerSearch) ||
-                            (p.getDescription() != null && p.getDescription().toLowerCase().contains(lowerSearch)))
+                            (p.getDescription() != null &&
+                                    p.getDescription().toLowerCase().contains(lowerSearch)))
                     .collect(Collectors.toList());
         }
 
-        // Map to DTO with currency conversion
+        // Buyer-specific DTO mapping (currency, wishlist, etc.)
         return filteredProducts.stream()
                 .map(product -> mapToDtoForBuyer(product, buyer))
                 .collect(Collectors.toList());
@@ -360,6 +401,7 @@ public class ProductService {
         dto.setReservedStock(product.getReservedStock());
         dto.setRemainingStock(product.getRemainingStock());
         dto.setStockStatus(product.getStockStatus());
+        dto.setAllowDirectBuy(product.getAllowDirectBuy());
 
         // Fetch and map selling countries
         List<ProductSellingCountry> countries = sellingCountryRepository.findByProductId(product.getId());

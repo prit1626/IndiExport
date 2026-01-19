@@ -25,6 +25,8 @@ public interface InquiryRepository extends JpaRepository<Inquiry, Long> {
     Optional<Inquiry> findByIdAndBuyerId(Long id, Long buyerId);
     
     long countByBuyerId(Long buyerId);
+
+    
 }
 
 

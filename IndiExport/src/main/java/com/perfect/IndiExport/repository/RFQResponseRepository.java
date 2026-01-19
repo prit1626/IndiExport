@@ -20,5 +20,9 @@ public interface RFQResponseRepository extends JpaRepository<RFQResponse, Long> 
     long countByRfqId(Long rfqId);
     
     long countBySellerId(Long sellerId);
+    
+    List<RFQResponse> findByRfqIdAndStatusOrderByCreatedAtDesc(Long rfqId, RFQResponse.ResponseStatus status);
+    
+    Optional<RFQResponse> findByIdAndRfqBuyerId(Long id, Long buyerId);
 }
 

@@ -7,7 +7,9 @@ import java.time.LocalDateTime;
 @Data
 public class ChatRoomDto {
     private Long id;
-    private Long inquiryId;
+    private Long inquiryId; // For Inquiry-based chat
+    private Long rfqResponseId; // For RFQ-based chat
+    private Long rfqId; // For RFQ-based chat
     private Long buyerId;
     private String buyerName;
     private Long sellerId;

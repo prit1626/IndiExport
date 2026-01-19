@@ -26,7 +26,8 @@ export const browseProducts = (category = null, search = null) => {
     if (category) params.append("category", category);
     if (search) params.append("search", search);
     const queryString = params.toString();
-    return api.get(`/products/browse${queryString ? `?${queryString}` : ""}`);
+    console.log("queryString", queryString)
+    return api.get(`/products/browse${queryString}`);
 };
 
 export const getProductDetails = (id) => {

@@ -6,6 +6,7 @@ import com.perfect.IndiExport.entity.User;
 import com.perfect.IndiExport.service.SellerService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.*;
@@ -13,6 +14,7 @@ import com.perfect.IndiExport.repository.UserRepository;
 
 @RestController
 @RequestMapping("/api/seller")
+@PreAuthorize("hasRole('SELLER')")
 @RequiredArgsConstructor
 public class SellerController {
 

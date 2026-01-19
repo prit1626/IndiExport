@@ -40,10 +40,22 @@ public class RFQResponse {
     @Column(columnDefinition = "TEXT")
     private String message;
 
+    @Column(nullable = false)
+    @Enumerated(EnumType.STRING)
+    @Builder.Default
+    private ResponseStatus status = ResponseStatus.SUBMITTED;
+
     @CreationTimestamp
     private LocalDateTime createdAt;
 
     @UpdateTimestamp
     private LocalDateTime updatedAt;
+
+    public enum ResponseStatus {
+        SUBMITTED,  // Quotation submitted
+        IN_CHAT,    // Chat opened for negotiation
+        ACCEPTED,   // Buyer accepted the deal
+        DECLINED    // Buyer declined the deal
+    }
 }
 

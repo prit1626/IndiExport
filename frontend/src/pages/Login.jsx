@@ -2,12 +2,15 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { GoogleLogin } from "@react-oauth/google";
 import { login, googleLogin } from "../services/authService";
+import { useAuth } from "../context/AuthContext";
 
 const Login = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const navigate = useNavigate();
+
+  const { login: authLogin } = useAuth();
 
   const redirect = (role) => {
     if (role === "BUYER") navigate("/buyer");
@@ -20,11 +23,20 @@ const Login = () => {
     setError("");
     try {
       const res = await login(email, password);
-      localStorage.setItem("token", res.data.token);
-      localStorage.setItem("role", res.data.role);
+      authLogin({ token: res.data.token, role: res.data.role });
       redirect(res.data.role);
     } catch {
       setError("Invalid credentials");
+    }
+  };
+
+  const handleGoogleSuccess = async (res) => {
+    try {
+      const r = await googleLogin(res.credential);
+      authLogin({ token: r.data.token, role: r.data.role });
+      redirect(r.data.role);
+    } catch {
+      setError("Google login failed");
     }
   };
 
@@ -41,15 +53,10 @@ const Login = () => {
         <button>Login</button>
       </form>
 
-      <GoogleLogin
-        onSuccess={async (res) => {
-          const r = await googleLogin(res.credential);
-          localStorage.setItem("token", r.data.token);
-          localStorage.setItem("role", r.data.role);
-          redirect(r.data.role);
-        }}
+      {/* <GoogleLogin
+        onSuccess={handleGoogleSuccess}
         onError={() => setError("Google login failed")}
-      />
+      /> */}
 
       <div className="link">
         <Link to="/register">Create account</Link>
